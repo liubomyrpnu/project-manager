@@ -27,6 +27,8 @@ export function loadConfig(env = process.env) {
     encryptionKey: env.ENCRYPTION_KEY || '',
 
     security: {
+      // Політика тимчасового блокування: fixed (N спроб → фіксований час) або progressive
+      lockoutPolicy: env.LOCKOUT_POLICY || 'fixed',
       maxFailedLogins: int(env.MAX_FAILED_LOGINS, 5),
       lockMinutes: int(env.LOCK_MINUTES, 15),
       activationTtlHours: int(env.ACTIVATION_TTL_HOURS, 24),

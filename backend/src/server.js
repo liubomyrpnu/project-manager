@@ -16,11 +16,12 @@ async function main() {
     process.exit(1);
   }
 
-  const { app } = await createApp({ config, db });
+  const { app, lockoutPolicy } = await createApp({ config, db });
   app.listen(config.port, () => {
     console.log(`API запущено: ${config.apiPublicUrl}/api`);
     console.log(`Пошта: ${config.mail.transport === 'smtp' ? `SMTP ${config.mail.smtp.host}` : `консоль + папка ${config.mail.outboxDir}`}`);
     console.log(`Вхід через Google: ${config.google.clientId ? 'налаштовано' : 'не налаштовано'}`);
+    console.log(`Політика блокування після невдалих входів: ${lockoutPolicy.name}`);
   });
 }
 

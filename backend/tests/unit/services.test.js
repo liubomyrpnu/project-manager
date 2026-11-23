@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { SecurityEventPublisher } from '../../src/events/SecurityEventPublisher.js';
+import { AccountLockedMailObserver } from '../../src/events/observers/AccountLockedMailObserver.js';
+import { LoginAuditObserver } from '../../src/events/observers/LoginAuditObserver.js';
 import { memoryTransport } from '../../src/mail/mailService.js';
+import { FixedLockoutPolicy } from '../../src/security/lockoutPolicies.js';
 import { createCryptoBox } from '../../src/security/cryptoBox.js';
 import { hashPassword } from '../../src/security/password.js';
 import { createAuthService } from '../../src/services/authService.js';
@@ -40,10 +44,14 @@ describe('AuthService (модульні тести)', () => {
     ]);
     const log = [];
     const mail = memoryTransport();
+    const events = new SecurityEventPublisher()
+      .subscribe(new LoginAuditObserver({ add: async (entry) => log.push(entry) }))
+      .subscribe(new AccountLockedMailObserver(mail));
     const service = createAuthService({
       users,
       tokens: {},
-      attempts: { add: async (entry) => log.push(entry) },
+      events,
+      lockoutPolicy: new FixedLockoutPolicy({ maxFailedLogins: 3, lockMinutes: 15 }),
       mail,
       captcha: {},
       cryptoBox: createCryptoBox('ab'.repeat(32)),
