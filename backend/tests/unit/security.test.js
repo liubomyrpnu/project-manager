@@ -3,7 +3,8 @@ import { describe, test } from 'node:test';
 import { createCaptchaStore } from '../../src/security/captcha.js';
 import { createCryptoBox, hashToken } from '../../src/security/cryptoBox.js';
 import { signJwt, verifyJwt } from '../../src/security/jwt.js';
-import { isTemporarilyLocked, registerFailedAttempt } from '../../src/security/loginGuard.js';
+import { FixedLockoutPolicy } from '../../src/security/lockoutPolicies.js';
+import { isTemporarilyLocked } from '../../src/security/loginGuard.js';
 import { hashPassword, verifyPassword } from '../../src/security/password.js';
 import { base32Decode, base32Encode, hotp, verifyTotp } from '../../src/security/totp.js';
 
@@ -93,15 +94,15 @@ describe('Шифрування секретів, токени, CAPTCHA, блок
   });
 
   test('UT-12: акаунт блокується після 5-ї невдалої спроби на 15 хвилин', () => {
-    const policy = { maxFailedLogins: 5, lockMinutes: 15 };
+    const policy = new FixedLockoutPolicy({ maxFailedLogins: 5, lockMinutes: 15 });
     const now = new Date('2026-11-23T10:00:00Z');
     let user = { failedLoginCount: 0, lockedUntil: null };
     for (let i = 1; i <= 4; i += 1) {
-      user = { ...user, ...registerFailedAttempt(user, policy, now) };
+      user = { ...user, ...policy.onFailedAttempt(user, now) };
       assert.equal(user.failedLoginCount, i);
       assert.equal(isTemporarilyLocked(user, now), false);
     }
-    const fifth = registerFailedAttempt(user, policy, now);
+    const fifth = policy.onFailedAttempt(user, now);
     assert.equal(fifth.lockedNow, true);
     assert.equal(fifth.lockedUntil.toISOString(), '2026-11-23T10:15:00.000Z');
     assert.equal(isTemporarilyLocked(fifth, now), true);

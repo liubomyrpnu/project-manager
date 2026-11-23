@@ -1,8 +1,9 @@
 import { badRequest, conflict, forbidden, throwIfInvalid, tooManyRequests, unauthorized } from '../errors/AppError.js';
-import { accountLockedEmail, activationEmail, passwordResetEmail } from '../mail/templates.js';
+import { SecurityEvents } from '../events/SecurityEventPublisher.js';
+import { activationEmail, passwordResetEmail } from '../mail/templates.js';
 import { generateToken, hashToken } from '../security/cryptoBox.js';
 import { signJwt, verifyJwt } from '../security/jwt.js';
-import { formatLockTime, isTemporarilyLocked, registerFailedAttempt } from '../security/loginGuard.js';
+import { formatLockTime, isTemporarilyLocked } from '../security/loginGuard.js';
 import { dummyVerify, hashPassword, verifyPassword } from '../security/password.js';
 import { passwordPolicyError } from '../security/passwordPolicy.js';
 import { verifyTotp } from '../security/totp.js';
@@ -13,7 +14,9 @@ const INVALID_CREDENTIALS = 'Невірна пошта або пароль';
 
 // Сервіс автентифікації: реєстрація, активація, вхід (з 2FA), вихід,
 // відновлення пароля та захист від перебору паролів.
-export function createAuthService({ users, tokens, attempts, mail, captcha, cryptoBox, config, now = () => new Date() }) {
+//   events        — видавець подій безпеки (патерн Observer): журнал входів, лист про блокування тощо;
+//   lockoutPolicy — стратегія тимчасового блокування акаунта (патерн Strategy).
+export function createAuthService({ users, tokens, events, lockoutPolicy, mail, captcha, cryptoBox, config, now = () => new Date() }) {
   const { security } = config;
 
   // ---------- Токени доступу ----------
@@ -43,11 +46,13 @@ export function createAuthService({ users, tokens, attempts, mail, captcha, cryp
     return user;
   }
 
-  // ---------- Журнал спроб входу ----------
-  const logAttempt = (entry, ctx) =>
-    attempts.add({ ...entry, ip: ctx.ip, userAgent: ctx.userAgent }).catch((err) =>
-      console.error('[auth] не вдалося записати спробу входу:', err.message)
-    );
+  // ---------- Події входу (Observer) ----------
+  // Сервіс лише повідомляє, що сталося; запис у журнал і листи виконують спостерігачі.
+  const loginSucceeded = (user, ctx, method) =>
+    events.notify(SecurityEvents.LOGIN_SUCCEEDED, { user, method, reason: 'ok', context: ctx });
+
+  const loginFailed = (user, email, ctx, method, reason) =>
+    events.notify(SecurityEvents.LOGIN_FAILED, { user, email, method, reason, context: ctx });
 
   async function sendSafely(to, message) {
     try {
@@ -59,16 +64,20 @@ export function createAuthService({ users, tokens, attempts, mail, captcha, cryp
     }
   }
 
-  // Фіксує невдалу спробу й за потреби тимчасово блокує акаунт.
+  // Фіксує невдалу спробу; чи блокувати акаунт і на скільки — вирішує стратегія lockoutPolicy.
   async function failAttempt(user, ctx, { method, reason, message }) {
-    const state = registerFailedAttempt(user, security, now());
-    await users.updateLoginState(user.id, state);
-    await logAttempt({ userId: user.id, email: user.email, method, success: false, reason: state.lockedNow ? `${reason}_locked` : reason }, ctx);
+    const state = lockoutPolicy.onFailedAttempt(user, now());
+    await users.updateLoginState(user.id, { failedLoginCount: state.failedLoginCount, lockedUntil: state.lockedUntil });
+    await loginFailed(user, user.email, ctx, method, state.lockedNow ? `${reason}_locked` : reason);
     if (state.lockedNow) {
-      const until = formatLockTime(state.lockedUntil);
-      sendSafely(user.email, accountLockedEmail({ name: user.name, until, attempts: security.maxFailedLogins }));
+      await events.notify(SecurityEvents.ACCOUNT_LOCKED, {
+        user,
+        lockedUntil: state.lockedUntil,
+        attempts: state.attempts,
+        context: ctx,
+      });
       throw tooManyRequests(
-        `Забагато невдалих спроб (${security.maxFailedLogins}). Обліковий запис тимчасово заблоковано до ${until}.`
+        `Забагато невдалих спроб (${state.attempts}). Обліковий запис тимчасово заблоковано до ${formatLockTime(state.lockedUntil)}.`
       );
     }
     throw unauthorized(message);
@@ -76,11 +85,11 @@ export function createAuthService({ users, tokens, attempts, mail, captcha, cryp
 
   async function assertCanLogin(user, ctx, method) {
     if (user.isBlocked) {
-      await logAttempt({ userId: user.id, email: user.email, method, success: false, reason: 'blocked' }, ctx);
+      await loginFailed(user, user.email, ctx, method, 'blocked');
       throw forbidden('Обліковий запис заблоковано адміністратором');
     }
     if (isTemporarilyLocked(user, now())) {
-      await logAttempt({ userId: user.id, email: user.email, method, success: false, reason: 'locked' }, ctx);
+      await loginFailed(user, user.email, ctx, method, 'locked');
       throw tooManyRequests(
         `Обліковий запис тимчасово заблоковано через невдалі спроби входу. Спробуйте після ${formatLockTime(user.lockedUntil)}.`
       );
@@ -94,7 +103,7 @@ export function createAuthService({ users, tokens, attempts, mail, captcha, cryp
       return { twoFactorRequired: true, challengeToken: issueTwoFactorChallenge(user) };
     }
     const updated = await users.recordSuccessfulLogin(user.id);
-    await logAttempt({ userId: user.id, email: user.email, method, success: true, reason: 'ok' }, ctx);
+    await loginSucceeded(updated, ctx, method);
     return { token: issueAccessToken(updated), user: toUserDto(updated) };
   }
 
@@ -171,7 +180,7 @@ export function createAuthService({ users, tokens, attempts, mail, captcha, cryp
       const user = await users.findByEmail(normalized);
       if (!user) {
         await dummyVerify(password); // однаковий час відповіді для існуючих і неіснуючих акаунтів
-        await logAttempt({ email: normalized, success: false, reason: 'unknown_email' }, ctx);
+        await loginFailed(null, normalized, ctx, 'password', 'unknown_email');
         throw unauthorized(INVALID_CREDENTIALS);
       }
 
@@ -212,7 +221,7 @@ export function createAuthService({ users, tokens, attempts, mail, captcha, cryp
       }
       await users.setTotpLastStep(user.id, step);
       const updated = await users.recordSuccessfulLogin(user.id);
-      await logAttempt({ userId: user.id, email: user.email, method: '2fa', success: true, reason: 'ok' }, ctx);
+      await loginSucceeded(updated, ctx, '2fa');
       return { token: issueAccessToken(updated), user: toUserDto(updated) };
     },
 
