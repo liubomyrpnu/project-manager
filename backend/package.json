@@ -1,0 +1,26 @@
+{
+  "name": "project-manager-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "REST API вебзастосунку для управління бізнес-проєктами з безпечною системою облікових записів",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup-env.js",
+    "db:reset": "node scripts/db-reset.js",
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test \"tests/unit/**/*.test.js\"",
+    "test:integration": "node --test --test-concurrency=1 \"tests/integration/**/*.test.js\""
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "helmet": "^8.0.0",
+    "nodemailer": "^6.9.16",
+    "pg": "^8.13.1"
+  }
+}
