@@ -54,7 +54,7 @@ export default function LoginPage() {
     const nextErrors = { email: validateEmail(values.email), password: validateLoginPassword(values.password) };
     setErrors(nextErrors);
     if (Object.values(nextErrors).some(Boolean)) return;
-    run(async () => {
+    void run(async () => {
       const result = await login(values.email.trim(), values.password);
       if (result.twoFactorRequired) setChallengeToken(result.challengeToken);
     });
@@ -65,7 +65,7 @@ export default function LoginPage() {
     const codeError = validateOtp(values.code);
     setErrors({ code: codeError });
     if (codeError) return;
-    run(async () => {
+    void run(async () => {
       try {
         await verifyTwoFactor(challengeToken, values.code.replace(/\s/g, ''));
       } catch (err) {
@@ -91,7 +91,6 @@ export default function LoginPage() {
               inputMode="numeric"
               autoComplete="one-time-code"
               maxLength={7}
-              autoFocus
             />
           </FormField>
           {serverError && <p className="state state--error" role="alert">{serverError}</p>}

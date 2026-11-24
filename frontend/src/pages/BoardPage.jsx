@@ -69,7 +69,7 @@ export default function BoardPage() {
 
   const handleDelete = (task) => {
     if (!window.confirm(`Видалити завдання «${task.title}»?`)) return;
-    run(() => deleteTask(task.id));
+    void run(() => deleteTask(task.id)); // помилки обробляє run()
   };
 
   return (

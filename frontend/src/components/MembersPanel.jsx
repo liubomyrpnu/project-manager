@@ -36,7 +36,7 @@ export default function MembersPanel({ projectId, members, isManager, currentUse
 
   const handleRemove = (member) => {
     if (!window.confirm(`Видалити ${member.name} з проєкту?`)) return;
-    run(() => removeMember(projectId, member.userId));
+    void run(() => removeMember(projectId, member.userId)); // помилки обробляє run()
   };
 
   return (

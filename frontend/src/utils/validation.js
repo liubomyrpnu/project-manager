@@ -1,10 +1,20 @@
 // Функції валідації форм. Кожна повертає текст помилки або порожній рядок.
 // Ті самі правила повторно перевіряються на сервері.
 
+// Формат пошти перевіряється без регулярного виразу з повтореннями (захист від ReDoS,
+// правило SonarQube S5852): одна «@», непорожня локальна частина, домен із крапкою.
+function isEmailFormat(email) {
+  if (email.length > 255 || /\s/.test(email)) return false;
+  const at = email.indexOf('@');
+  if (at < 1 || at !== email.lastIndexOf('@')) return false;
+  const labels = email.slice(at + 1).split('.');
+  return labels.length >= 2 && labels.every((label) => label.length > 0);
+}
+
 export function validateEmail(email) {
   const value = email.trim();
   if (!value) return 'Введіть електронну пошту';
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Некоректний формат пошти';
+  if (!isEmailFormat(value)) return 'Некоректний формат пошти';
   return '';
 }
 

@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 import {
   getDeadlineState,
   isUuid,
+  isEmailFormat,
   isValidDateString,
   normalizeEmail,
   validateEmail,
@@ -40,5 +41,20 @@ describe('Валідація вхідних даних', () => {
     assert.equal(getDeadlineState('2026-11-27', 'todo', today), 'ok');
     assert.equal(getDeadlineState('2026-11-01', 'done', today), 'none');
     assert.equal(getDeadlineState(null, 'todo', today), 'none');
+  });
+
+  test('UT-31: перевірка пошти працює за лінійний час (захист від ReDoS, SonarQube S5852)', () => {
+    assert.equal(isEmailFormat('ivan@mail.example.com'), true);
+    assert.equal(isEmailFormat('ivan@localhost'), false);
+    assert.equal(isEmailFormat('ivan@@example.com'), false);
+    assert.equal(isEmailFormat('@example.com'), false);
+    assert.equal(isEmailFormat('ivan@example..com'), false);
+
+    // Рядок, на якому старий вираз /^[^\s@]+@[^\s@]+\.[^\s@]+$/ має квадратичну складність:
+    // 40 000 символів — близько 2,7 с роботи, весь цей час сервер Node.js заблокований
+    const attack = `a@${'.'.repeat(40_000)}@`;
+    const started = performance.now();
+    assert.equal(isEmailFormat(attack), false);
+    assert.ok(performance.now() - started < 50, 'перевірка має тривати мілісекунди');
   });
 });

@@ -5,16 +5,28 @@ export const TASK_STATUSES = ['todo', 'in_progress', 'done'];
 export const PROJECT_ROLES = ['manager', 'member'];
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const isUuid = (value) => typeof value === 'string' && UUID_RE.test(value);
 
 export const normalizeEmail = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
 
+// Перевірка формату пошти без регулярного виразу з повтореннями, що перекриваються.
+// Попередній вираз /^[^\s@]+@[^\s@]+\.[^\s@]+$/ на довгому рядку без крапки після «@»
+// перебирав варіанти з квадратичною складністю (ReDoS, правило SonarQube S5852).
+// Тепер рядок розбирається за лінійний час: одна «@», непорожня локальна частина,
+// домен з щонайменше двох непорожніх частин, розділених крапкою.
+export function isEmailFormat(email) {
+  if (typeof email !== 'string' || email.length > 255 || /\s/.test(email)) return false;
+  const at = email.indexOf('@');
+  if (at < 1 || at !== email.lastIndexOf('@')) return false;
+  const labels = email.slice(at + 1).split('.');
+  return labels.length >= 2 && labels.every((label) => label.length > 0);
+}
+
 export function validateEmail(value) {
   const email = normalizeEmail(value);
   if (!email) return 'Введіть електронну пошту';
-  if (email.length > 255 || !EMAIL_RE.test(email)) return 'Некоректний формат пошти';
+  if (!isEmailFormat(email)) return 'Некоректний формат пошти';
   return '';
 }
 
